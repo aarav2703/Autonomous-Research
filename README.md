@@ -539,6 +539,20 @@ What the dashboard currently shows:
 - retrieval process panel showing dense candidates, BM25 candidates, merged results, and title boosts
 - toggles for hybrid retrieval and multi-hop expansion
 
+## Dashboard Screenshots
+
+### Landing View
+
+![Dashboard landing view](docs/images/dashboard-hero.png)
+
+### Answer And Workflow Trace
+
+![Dashboard answer and workflow trace](docs/images/dashboard-answer-trace.png)
+
+### Retrieval And Evidence View
+
+![Dashboard retrieval and evidence view](docs/images/dashboard-retrieval-evidence.png)
+
 ## Optional Docker Setup
 
 This repo includes a lightweight backend container definition for local packaging. I treated it as an optional convenience layer, not as the main part of the project.
