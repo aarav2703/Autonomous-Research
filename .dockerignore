@@ -1,0 +1,12 @@
+.git
+.conda
+__pycache__
+.pytest_cache
+.mypy_cache
+.env
+.env.*
+artifacts
+data
+frontend/node_modules
+frontend/dist
+notebooks

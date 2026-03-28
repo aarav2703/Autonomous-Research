@@ -1,0 +1,35 @@
+AUTONOMOUS MULTI-HOP RESEARCH AGENT
+Exact local startup commands
+
+1. From the project root, activate the repo env:
+
+conda activate .\.conda\envs\autonomous-multi-hop-research-agent
+
+2. If you hit Windows OpenMP / torch issues, set this first:
+
+$env:KMP_DUPLICATE_LIB_OK="TRUE"
+
+3. Start the backend:
+
+python scripts/run_api.py
+
+4. In a second terminal:
+
+cd frontend
+
+5. Start the frontend:
+
+npm install
+npm run dev
+
+6. Open the app:
+
+http://127.0.0.1:5173
+
+7. Backend used by the frontend by default:
+
+http://127.0.0.1:8000
+
+8. Optional quick health check:
+
+curl http://127.0.0.1:8000/health

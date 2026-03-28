@@ -1,0 +1,19 @@
+name: autonomous-multi-hop-research-agent
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - fastapi
+  - uvicorn
+  - pydantic
+  - numpy
+  - pandas
+  - scikit-learn
+  - python-dotenv
+  - pip:
+      - datasets
+      - sentence-transformers
+      - faiss-cpu
+      - langgraph
+      - langchain

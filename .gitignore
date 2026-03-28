@@ -1,0 +1,54 @@
+# Local environments
+.conda/
+.venv/
+venv/
+env/
+
+# Python caches and build outputs
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Generated data and experiment outputs
+artifacts/*
+!artifacts/.gitkeep
+data/*
+!data/.gitkeep
+*.sqlite
+*.db
+*.parquet
+*.faiss
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Frontend artifacts
+frontend/node_modules/
+frontend/dist/
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker and local runtime noise
+*.log
