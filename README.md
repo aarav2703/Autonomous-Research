@@ -543,7 +543,7 @@ What the dashboard currently shows:
 
 ### Landing View
 
-![Dashboard landing view](docs/images/dashboard-hero.png)
+![Dashboard landing view](docs/images/dashboard-retrieval-evidence.png)
 
 ### Answer And Workflow Trace
 
@@ -551,7 +551,7 @@ What the dashboard currently shows:
 
 ### Retrieval And Evidence View
 
-![Dashboard retrieval and evidence view](docs/images/dashboard-retrieval-evidence.png)
+![Dashboard retrieval and evidence view](docs/images/dashboard-hero.png)
 
 ## Optional Docker Setup
 
