@@ -35,10 +35,36 @@ class EvidenceItem(BaseModel):
     sentence_text: str
 
 
+class RetrievedChunkItem(BaseModel):
+    paragraph_id: str | None = None
+    title: str
+    score: float
+    paragraph_text: str | None = None
+
+
+class SelectedEvidenceItem(BaseModel):
+    sentence_id: str | None = None
+    paragraph_id: str | None = None
+    title: str
+    sentence_index: int | None = None
+    sentence_text: str
+    chunk_score: float | None = None
+    semantic_score: float | None = None
+    evidence_score: float | None = None
+    reranker_score: float | None = None
+    final_score: float
+    is_supporting_fact: bool | None = None
+
+
 class AskResponse(BaseModel):
     answer: str
     reasoning: list[str]
     evidence: list[EvidenceItem]
+    retrieved_chunks: list[RetrievedChunkItem]
+    selected_evidence: list[SelectedEvidenceItem]
+    subqueries: list[str]
+    hop_count: int
+    stage_counts: dict[str, int]
     status: str
     metadata: dict[str, str]
     retrieval_debug: dict[str, object]
@@ -90,6 +116,11 @@ def create_app() -> FastAPI:
             answer=response["answer"],
             reasoning=response["reasoning"],
             evidence=[EvidenceItem(**item) for item in response["evidence"]],
+            retrieved_chunks=[RetrievedChunkItem(**item) for item in response.get("retrieved_chunks", [])],
+            selected_evidence=[SelectedEvidenceItem(**item) for item in response.get("selected_evidence", [])],
+            subqueries=list(response.get("subqueries", [])),
+            hop_count=int(response.get("hop_count", 0)),
+            stage_counts={key: int(value) for key, value in response.get("stage_counts", {}).items()},
             status=response["status"],
             metadata=response["metadata"],
             retrieval_debug=response.get("retrieval_debug", {}),

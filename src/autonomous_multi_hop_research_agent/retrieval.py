@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from autonomous_multi_hop_research_agent.runtime import prepare_windows_torch_runtime
+
+prepare_windows_torch_runtime()
+
 import torch
 from sentence_transformers import SentenceTransformer
 
@@ -18,6 +22,11 @@ if TYPE_CHECKING:
 
 
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+
+def get_torch_device() -> str:
+    """Prefer CUDA when available, otherwise fall back to CPU."""
+    return "cuda" if torch.cuda.is_available() else "cpu"
 
 
 @dataclass(slots=True)
@@ -64,7 +73,7 @@ def embed_texts(
     """Embed texts into normalized float32 vectors."""
     import numpy as np
 
-    model = SentenceTransformer(model_name, device="cuda")
+    model = SentenceTransformer(model_name, device=get_torch_device())
     embeddings = model.encode(
         texts,
         batch_size=batch_size,
@@ -154,7 +163,7 @@ class DenseRetriever:
         self.metadata = pd.read_parquet(metadata_path)
         self.index = faiss.read_index(str(index_path))
         self.model_name = model_name
-        self.model = SentenceTransformer(model_name, device="cuda")
+        self.model = SentenceTransformer(model_name, device=get_torch_device())
 
     def retrieve(self, query: str, top_k: int = 5) -> pd.DataFrame:
         """Return the top-k paragraph chunks for a query."""

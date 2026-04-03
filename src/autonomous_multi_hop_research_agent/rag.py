@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, List
 from urllib import error, request
 
 from autonomous_multi_hop_research_agent.config import get_llm_settings
@@ -102,6 +102,33 @@ Context:
 """
 
 
+def build_subquery_prompt(question: str, context_titles: List[str]) -> str:
+        """Construct a strict JSON prompt for follow-up retrieval query generation."""
+        known_titles = "\n".join(f"- {title}" for title in context_titles[:20]) if context_titles else "- None"
+        return f"""Question: {question}
+Known context titles: {known_titles}
+
+Task:
+
+* Identify what information is missing to answer the question
+* Generate 1–2 focused search queries that target:
+
+    * a bridge entity OR
+    * a missing comparison attribute
+
+Rules:
+
+* Avoid restating the original question
+* Keep queries short and specific
+* No explanations
+
+Return JSON:
+{{
+    "subqueries": ["...", "..."]
+}}
+"""
+
+
 class OpenAICompatibleChatClient:
     """Minimal client for OpenAI-compatible chat completion APIs."""
 
@@ -122,6 +149,42 @@ class OpenAICompatibleChatClient:
             "messages": [
                 {"role": "system", "content": "You answer only from supplied evidence."},
                 {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.0,
+            "stream": False,
+        }
+        body = json.dumps(payload).encode("utf-8")
+        http_request = request.Request(
+            url=f"{self.base_url}/chat/completions",
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+            },
+            method="POST",
+        )
+
+        try:
+            with request.urlopen(http_request, timeout=90) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise LLMRequestError(f"LLM request failed with HTTP {exc.code}: {detail}") from exc
+        except error.URLError as exc:
+            raise LLMRequestError(f"LLM request failed: {exc.reason}") from exc
+
+        try:
+            return response_payload["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise LLMRequestError(f"Malformed provider response: {response_payload}") from exc
+
+    def create_structured_chat_completion(self, system_prompt: str, user_prompt: str) -> str:
+        """Call the provider with explicit system/user messages for structured tasks."""
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
             ],
             "temperature": 0.0,
             "stream": False,
@@ -215,3 +278,39 @@ def generate_grounded_answer(
     client = client or OpenAICompatibleChatClient()
     response_text = client.create_chat_completion(prompt)
     return parse_grounded_response(response_text=response_text, selected_sentences=selected_sentences, prompt=prompt)
+
+
+def generate_subqueries(
+    question: str,
+    context_titles: List[str],
+    client: OpenAICompatibleChatClient | None = None,
+) -> List[str]:
+    """Generate up to two structured follow-up retrieval queries; fail closed on errors."""
+    if not question.strip():
+        return []
+
+    client = client or OpenAICompatibleChatClient()
+    system_prompt = "You solve multi-hop QA by identifying missing information."
+    user_prompt = build_subquery_prompt(question=question, context_titles=context_titles)
+
+    try:
+        response_text = client.create_structured_chat_completion(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+        payload = json.loads(response_text)
+        raw_subqueries = payload.get("subqueries", [])
+        if not isinstance(raw_subqueries, list):
+            return []
+
+        cleaned: List[str] = []
+        for item in raw_subqueries[:2]:
+            if not isinstance(item, str):
+                continue
+            candidate = " ".join(item.split()).strip()
+            if not candidate:
+                continue
+            cleaned.append(candidate)
+        return cleaned
+    except (LLMConfigurationError, LLMRequestError, json.JSONDecodeError):
+        return []

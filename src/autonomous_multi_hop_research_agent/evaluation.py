@@ -158,6 +158,10 @@ class EvaluationSummary:
     retrieval_failure_count: int
     evidence_failure_count: int
     generation_failure_count: int
+    retrieval_recall_estimate: float
+    evidence_recall_estimate: float
+    used_multi_hop_rate: float
+    used_subqueries_rate: float
 
 
 def load_dev_sample(num_examples: int = 250, seed: int = 42) -> list[dict[str, Any]]:
@@ -228,6 +232,10 @@ def evaluate_dev_sample(
                 "gold_evidence": format_gold_evidence(example),
                 "num_citations": len(response["evidence"]),
                 "execution_trace": response["execution_trace"],
+                "retrieval_recall_estimate": float(response["metadata"].get("retrieval_recall_estimate", 0.0)),
+                "evidence_recall_estimate": float(response["metadata"].get("evidence_recall_estimate", 0.0)),
+                "used_multi_hop": str(response["metadata"].get("used_multi_hop", "False")).lower() == "true",
+                "used_subqueries": str(response["metadata"].get("used_subqueries", "False")).lower() == "true",
             }
         )
         if progress_interval > 0 and (idx % progress_interval == 0 or idx == len(examples)):
@@ -256,5 +264,9 @@ def evaluate_dev_sample(
         retrieval_failure_count=retrieval_failure_count,
         evidence_failure_count=evidence_failure_count,
         generation_failure_count=generation_failure_count,
+        retrieval_recall_estimate=float(results["retrieval_recall_estimate"].mean()),
+        evidence_recall_estimate=float(results["evidence_recall_estimate"].mean()),
+        used_multi_hop_rate=float(results["used_multi_hop"].mean()),
+        used_subqueries_rate=float(results["used_subqueries"].mean()),
     )
     return summary, results

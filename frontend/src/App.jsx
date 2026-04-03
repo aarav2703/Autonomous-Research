@@ -1,15 +1,44 @@
 import { useState } from 'react'
+import EvidenceGraph from './components/EvidenceGraph'
+import PipelineSankey from './components/PipelineSankey'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 const DEFAULT_QUESTION = "Which magazine was started first Arthur's Magazine or First for Women?"
+const RETRIEVAL_MODES = {
+  dense_single_hop: {
+    label: 'Dense single-hop',
+    description: 'Dense retrieval only, one retrieval pass.',
+    useHybridRetrieval: false,
+    useMultiHop: false,
+  },
+  hybrid_single_hop: {
+    label: 'Hybrid single-hop',
+    description: 'Dense plus BM25-style retrieval, one retrieval pass.',
+    useHybridRetrieval: true,
+    useMultiHop: false,
+  },
+  dense_multi_hop: {
+    label: 'Dense multi-hop',
+    description: 'Dense retrieval with multi-hop expansion.',
+    useHybridRetrieval: false,
+    useMultiHop: true,
+  },
+  hybrid_multi_hop: {
+    label: 'Hybrid multi-hop',
+    description: 'Hybrid retrieval with multi-hop expansion.',
+    useHybridRetrieval: true,
+    useMultiHop: true,
+  },
+}
 
 function App() {
   const [question, setQuestion] = useState(DEFAULT_QUESTION)
   const [answerData, setAnswerData] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
-  const [useHybridRetrieval, setUseHybridRetrieval] = useState(true)
-  const [useMultiHop, setUseMultiHop] = useState(false)
+  const [retrievalMode, setRetrievalMode] = useState('hybrid_single_hop')
+
+  const selectedMode = RETRIEVAL_MODES[retrievalMode]
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -26,8 +55,8 @@ function App() {
           question,
           retrieval_top_k: 5,
           evidence_top_k: 5,
-          use_hybrid_retrieval: useHybridRetrieval,
-          use_multi_hop: useMultiHop
+          use_hybrid_retrieval: selectedMode.useHybridRetrieval,
+          use_multi_hop: selectedMode.useMultiHop
         })
       })
 
@@ -72,23 +101,22 @@ function App() {
             </button>
             <span className="api-hint">Backend: {API_BASE_URL}</span>
           </div>
-          <div className="retrieval-toggles">
-            <label className="toggle-chip">
-              <input
-                type="checkbox"
-                checked={useHybridRetrieval}
-                onChange={(event) => setUseHybridRetrieval(event.target.checked)}
-              />
-              <span>Hybrid retrieval</span>
-            </label>
-            <label className="toggle-chip">
-              <input
-                type="checkbox"
-                checked={useMultiHop}
-                onChange={(event) => setUseMultiHop(event.target.checked)}
-              />
-              <span>Multi-hop expansion</span>
-            </label>
+          <div className="mode-section">
+            <p className="section-label">Retrieval Mode</p>
+            <div className="mode-selector" role="radiogroup" aria-label="Retrieval mode">
+              {Object.entries(RETRIEVAL_MODES).map(([modeKey, mode]) => (
+                <button
+                  key={modeKey}
+                  type="button"
+                  className={`mode-chip ${retrievalMode === modeKey ? 'is-active' : ''}`}
+                  onClick={() => setRetrievalMode(modeKey)}
+                  aria-pressed={retrievalMode === modeKey}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+            <p className="mode-description">{selectedMode.description}</p>
           </div>
         </form>
       </section>
@@ -102,7 +130,7 @@ function App() {
 
       {answerData ? (
         <section className="results-grid">
-          <article className="answer-card spotlight-card">
+          <article className="answer-card spotlight-card compact-answer-card">
             <p className="card-label">Answer</p>
             <h2>{answerData.answer}</h2>
             <div className="status-row">
@@ -113,7 +141,7 @@ function App() {
             </div>
           </article>
 
-          <article className="answer-card reasoning-card">
+          <article className="answer-card reasoning-card compact-info-card">
             <p className="card-label">Reasoning Steps</p>
             <ol className="reasoning-list">
               {answerData.reasoning.map((step, index) => (
@@ -122,7 +150,7 @@ function App() {
             </ol>
           </article>
 
-          <article className="answer-card trace-card">
+          <article className="answer-card trace-card compact-info-card">
             <p className="card-label">Workflow Trace</p>
             <ul className="trace-list">
               {answerData.execution_trace.map((step, index) => (
@@ -131,56 +159,23 @@ function App() {
             </ul>
           </article>
 
-          <article className="answer-card retrieval-card">
+          <article className="answer-card retrieval-card evidence-graph-card">
             <div className="retrieval-header">
-              <p className="card-label">Retrieval Process</p>
+              <p className="card-label">Evidence Graph</p>
               <span>{answerData.retrieval_debug?.mode ?? 'unknown mode'}</span>
             </div>
-            <div className="retrieval-columns">
-              <section>
-                <h3>Dense</h3>
-                <ul className="retrieval-list">
-                  {(answerData.retrieval_debug?.dense_titles ?? answerData.retrieval_debug?.hop1_titles ?? []).slice(0, 8).map((title, index) => (
-                    <li key={`${title}-${index}`}>{title}</li>
-                  ))}
-                </ul>
-              </section>
-              <section>
-                <h3>BM25</h3>
-                <ul className="retrieval-list">
-                  {(answerData.retrieval_debug?.bm25_titles ?? []).slice(0, 8).map((title, index) => (
-                    <li key={`${title}-${index}`}>{title}</li>
-                  ))}
-                  {!(answerData.retrieval_debug?.bm25_titles ?? []).length ? (
-                    <li className="retrieval-empty">Not used in this run.</li>
-                  ) : null}
-                </ul>
-              </section>
-              <section>
-                <h3>Merged</h3>
-                <ul className="retrieval-list">
-                  {(answerData.retrieval_debug?.merged_titles ?? []).slice(0, 8).map((title, index) => (
-                    <li key={`${title}-${index}`}>{title}</li>
-                  ))}
-                </ul>
-              </section>
-            </div>
-            {answerData.retrieval_debug?.title_boosts?.length ? (
-              <div className="boost-panel">
-                <p className="boost-label">Title boosts</p>
-                <ul className="boost-list">
-                  {answerData.retrieval_debug.title_boosts.slice(0, 6).map((item, index) => (
-                    <li key={`${item.paragraph_id}-${index}`}>
-                      <span>{item.title}</span>
-                      <strong>+{Number(item.title_boost).toFixed(2)}</strong>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
+            <EvidenceGraph answerData={answerData} />
           </article>
 
-          <article className="answer-card evidence-card">
+          <article className="answer-card retrieval-card sankey-card">
+            <div className="retrieval-header">
+              <p className="card-label">Pipeline Sankey</p>
+              <span>Candidate shrinkage across stages</span>
+            </div>
+            <PipelineSankey answerData={answerData} />
+          </article>
+
+          <article className="answer-card evidence-card full-width-card">
             <div className="evidence-header">
               <p className="card-label">Evidence Viewer</p>
               <span>{answerData.evidence.length} cited sentence(s)</span>

@@ -12,9 +12,27 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-if os.name == "nt":
+def prepare_windows_torch_runtime() -> None:
+    if os.name != "nt":
+        return
+
     # Avoid Windows OpenMP runtime conflicts between torch and numerical deps.
     os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+    env_root = PROJECT_ROOT / ".conda" / "envs" / "autonomous-multi-hop-research-agent"
+    dll_paths = [
+        env_root / "Lib" / "site-packages" / "torch" / "lib",
+        env_root / "Library" / "bin",
+    ]
+    existing = os.environ.get("PATH", "")
+    prefix_parts = [str(path) for path in dll_paths if path.exists()]
+    if prefix_parts:
+        os.environ["PATH"] = ";".join(prefix_parts + [existing])
+    for path in dll_paths:
+        if path.exists() and hasattr(os, "add_dll_directory"):
+            os.add_dll_directory(str(path))
+
+
+prepare_windows_torch_runtime()
 
 from autonomous_multi_hop_research_agent.evidence import EvidenceSelector
 from autonomous_multi_hop_research_agent.retrieval import DenseRetriever, build_gold_support_lookup
@@ -76,11 +94,24 @@ def main() -> None:
         print("Selected evidence sentences:")
         for rank, (_, row) in enumerate(evidence.selected_sentences.iterrows(), start=1):
             print(
-                f"  {rank}. [{row['sentence_id']}] evidence={row['evidence_score']:.4f} | "
+                f"  {rank}. [{row['sentence_id']}] final={row['final_score']:.4f} | "
+                f"reranker={row['reranker_score']:.4f} | evidence={row['evidence_score']:.4f} | "
                 f"chunk={row['chunk_score']:.4f} | semantic={row['semantic_score']:.4f} | "
                 f"supporting={row['is_supporting_fact']}"
             )
             print(f"     {row['title']} | sentence {row['sentence_index']}: {row['sentence_text']}")
+
+        legacy_ranked_ids = evidence.selected_sentences.sort_values(
+            ["evidence_score", "chunk_score"],
+            ascending=False,
+        )["sentence_id"].tolist()
+        final_ranked_ids = evidence.selected_sentences.sort_values(
+            ["final_score", "evidence_score", "chunk_score"],
+            ascending=False,
+        )["sentence_id"].tolist()
+        print("Ranking comparison (legacy vs reranker-augmented):")
+        print(f"  - legacy order: {legacy_ranked_ids}")
+        print(f"  - final order:  {final_ranked_ids}")
 
         print("Ground truth supporting facts:")
         for _, row in gold.iterrows():

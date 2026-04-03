@@ -39,7 +39,7 @@ LangGraph Workflow
 - **Grounded generation**: I integrated an OpenAI-compatible LLM client and forced the answering stage to use only retrieved evidence.
 - **Workflow orchestration**: I wrapped the pipeline in LangGraph so the system runs as a structured workflow rather than a loose script chain.
 - **Evaluation**: I added answer metrics, supporting-fact metrics, failure breakdowns, and controlled comparisons across retrieval modes.
-- **Frontend**: I added a React dashboard that shows the answer, reasoning, evidence, workflow trace, and now the retrieval process itself.
+- **Frontend**: I added a React dashboard that now exposes four retrieval modes, a workflow trace, an evidence viewer, a candidate-shrinkage Sankey, and an interactive retrieval graph so the retrieval process is visible rather than hidden behind a single final answer.
 
 ## Design Process
 
@@ -65,6 +65,28 @@ That progression matters because most of the later upgrades reuse the earlier mo
 - **Orchestration**: LangGraph nodes for normalization, retrieval, evidence selection, generation, and response formatting.
 - **Evaluation**: answer EM/F1 and supporting-fact precision/recall/F1, plus retrieval/evidence/generation failure breakdowns.
 - **Serving**: FastAPI backend with a React/Vite frontend.
+
+## Retrieval Modes
+
+One thing I wanted the interface to make explicit was that this project is not just "one RAG pipeline." I currently expose four retrieval configurations in the frontend and API:
+
+1. **Dense single-hop**
+   - One dense retrieval pass over the FAISS paragraph index.
+   - This is the simplest baseline and the easiest mode to interpret.
+
+2. **Hybrid single-hop**
+   - One retrieval pass that combines dense retrieval with BM25-style lexical matching and title-aware boosts.
+   - This mode usually improves recall when exact names or titles matter.
+
+3. **Dense multi-hop**
+   - A dense first hop followed by follow-up retrieval over bridge entities or generated subqueries.
+   - I use this mode to probe whether iterative retrieval adds missing support pages that single-hop misses.
+
+4. **Hybrid multi-hop**
+   - A multi-hop retriever that uses the hybrid retriever as its base instead of dense-only retrieval.
+   - In practice, this is the broadest retrieval setting in the project.
+
+I think of these as four controlled variants of the same downstream grounded QA system rather than four unrelated models. That mattered to me because I wanted comparisons to reflect retrieval changes, not a totally different answer generator each time.
 
 ## Current Corpus And Artifacts
 
@@ -532,26 +554,92 @@ The frontend is wired to the backend through `VITE_API_BASE_URL`, which defaults
 What the dashboard currently shows:
 
 - question input
+- explicit retrieval-mode selector for all four retrieval variants
 - answer display
 - reasoning steps
 - workflow execution trace
 - evidence viewer with highlighted citations
-- retrieval process panel showing dense candidates, BM25 candidates, merged results, and title boosts
-- toggles for hybrid retrieval and multi-hop expansion
+- retrieval graph with hover inspection, zoom controls, and mode-aware graph summaries
+- pipeline Sankey showing how many candidates survive each stage
+- retrieval debug information exposed through mode-specific workflow traces
+
+## Current Frontend Improvements
+
+I recently revised the frontend to make the retrieval side of the system easier to interpret during demos and debugging.
+
+- I replaced the older checkbox-style retrieval controls with an explicit four-mode selector.
+- I added an evidence graph that lets me inspect the relationship between the query, retrieved documents, selected evidence, and the final answer.
+- I added a pipeline Sankey so I can see how many candidates survive retrieval, reranking, evidence selection, and final answer generation.
+- I tightened the layout so the dashboard uses horizontal space better and reads more like a research instrument than a toy demo.
+- I also spent some time fixing Windows runtime issues and retrieval-mode routing so the backend behavior now matches what the frontend says it is running.
 
 ## Dashboard Screenshots
 
+For the comparison screenshots below, I used the same question across all four retrieval modes:
+
+`Which magazine was started first Arthur's Magazine or First for Women?`
+
+I wanted this section to function like a small controlled qualitative comparison, so the point is not that the UI looks different for unrelated prompts. The point is that I can hold the query fixed and show how retrieval behavior, workflow trace content, evidence quality, and candidate shrinkage change as I move from dense single-hop to hybrid multi-hop.
+
 ### Landing View
 
-![Dashboard landing view](docs/images/dashboard-retrieval-evidence.png)
+This is the current landing state before a query is submitted. I wanted the interface to feel lightweight and readable, but still clearly present the system as an inspectable research workflow rather than a plain chat box.
 
-### Answer And Workflow Trace
+![Dashboard landing view](docs/images/dashboard-landing-updated.png)
 
-![Dashboard answer and workflow trace](docs/images/dashboard-answer-trace.png)
+### Dense Single-Hop
 
-### Retrieval And Evidence View
+This is the dense single-hop baseline on that shared comparison query. In this mode the system makes one dense retrieval pass and either answers from the retrieved evidence or fails closed if the context is not good enough.
 
-![Dashboard retrieval and evidence view](docs/images/dashboard-hero.png)
+![Dense single-hop mode](docs/images/dashboard-dense-single-hop.png)
+
+The corresponding dense single-hop retrieval graph and Sankey view:
+
+![Dense single-hop graph and Sankey](docs/images/dashboard-retrieval-evidence.png)
+
+### Hybrid Single-Hop
+
+This is the hybrid single-hop result for the same question. Here I combine dense retrieval with BM25-style lexical retrieval and title boosts before evidence selection. This has been the most reliable single-hop mode in my experiments so far.
+
+![Hybrid single-hop mode](docs/images/dashboard-hybrid-single-hop.png)
+
+### Dense Multi-Hop
+
+This is the dense multi-hop result for the same question. The retrieval trace becomes more interesting here because the system now tries to expand beyond the first hop rather than trusting the initial dense retrieval set.
+
+![Dense multi-hop mode](docs/images/dashboard-dense-multi-hop.png)
+
+The dense multi-hop graph and Sankey view:
+
+![Dense multi-hop graph and Sankey](docs/images/dashboard-dense-multi-hop-graph.png)
+
+### Hybrid Multi-Hop
+
+This is the hybrid multi-hop result for the same question, which is the broadest retrieval setting currently exposed in the project. In this mode I combine lexical-plus-dense retrieval with iterative expansion, then let the evidence selector compress that larger candidate set back down to grounded evidence.
+
+![Hybrid multi-hop mode](docs/images/dashboard-hybrid-multi-hop.png)
+
+The hybrid multi-hop graph and Sankey view:
+
+![Hybrid multi-hop graph and Sankey](docs/images/dashboard-hybrid-multi-hop-graph.png)
+
+### What The Four-Mode Comparison Shows
+
+Holding the question fixed made a few patterns easier for me to explain.
+
+- **Dense single-hop** is the most brittle baseline and is the most likely to fail closed when the first retrieval pass misses a key comparison fact.
+- **Hybrid single-hop** usually improves coverage because lexical overlap helps recover the named entities directly.
+- **Dense multi-hop** is interesting when the first hop exposes a bridge entity, but it can still be noisy if the follow-up expansion is weak.
+- **Hybrid multi-hop** gives me the broadest candidate pool, and the Sankey is especially helpful there because it shows how much of that pool gets discarded by evidence selection.
+
+### Why I Added These Views
+
+From a grad-student project perspective, the visualizations matter because they let me show where the system is succeeding or failing without pretending retrieval is a black box.
+
+- The **workflow trace** shows the exact sequence of orchestration decisions.
+- The **evidence graph** gives me a compact visual summary of how retrieved documents connect to evidence and then to the answer.
+- The **pipeline Sankey** makes candidate shrinkage visible, which is useful when retrieval improves but evidence selection still becomes the bottleneck.
+- The **evidence viewer** lets me inspect the actual cited sentences instead of only trusting the model's final prose.
 
 ## Optional Docker Setup
 
@@ -581,20 +669,21 @@ The container exposes the API on port `8000`.
 
 ## Limitations
 
-- `device="cuda"` is currently hardcoded for sentence-transformer inference, so CPU-only environments need a fallback path.
 - Retrieval is still the dominant failure mode, even after adding multi-hop and hybrid retrieval.
 - Evidence recall is still modest on questions where the gold support includes "setup" sentences rather than the most answer-like sentence.
 - The current multi-hop retriever improves some retrieval cases, but in my latest A/B test it did not improve end-to-end QA metrics overall.
 - Hybrid retrieval improves retrieval coverage, but the evidence selector is not yet strong enough to fully capitalize on that gain.
+- The current evidence graph is useful for interpretation, but it is still a visualization of retrieval and evidence state rather than a true graph-native retrieval system.
 - Backend network testing in this environment was more reliable through in-process validation than direct localhost socket testing.
 
 ## Future Updates I Have In Mind
 
-- Add CPU/GPU auto-detection instead of hardcoding CUDA.
 - Add a stronger sentence or paragraph reranker after retrieval.
 - Improve multi-hop query expansion so hop 2 is driven by better bridge entities.
 - Improve evidence selection so it can take advantage of the broader candidate set from hybrid retrieval.
 - Add a cleaner benchmark table and experiment log in the dashboard.
 - Expand evaluation to larger subsets and more official Hotpot-style reporting.
 - Add streaming responses and richer evidence highlighting in the frontend.
+- Add a more stable graph interaction model with better panning, filtering, and mode comparison views.
+- Add graph-based RAG later on so the project moves from graph visualization toward an actual graph-native retrieval method.
 - Add Docker Compose services for the frontend and more polished local deployment.
