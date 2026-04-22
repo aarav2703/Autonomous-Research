@@ -54,14 +54,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--retrieval-top-k", type=int, default=5, help="Number of retrieved paragraphs.")
     parser.add_argument("--evidence-top-k", type=int, default=5, help="Number of selected evidence sentences.")
     parser.add_argument(
+        "--retrieval-mode",
+        type=str,
+        default=None,
+        help="Explicit retrieval mode such as dense_single_hop, hybrid_multi_hop, or graph_multi_hop.",
+    )
+    parser.add_argument(
         "--single-hop",
         action="store_true",
-        help="Disable multi-hop retrieval and use the original single-hop retriever.",
+        help="Legacy flag that keeps single-hop retrieval behavior when retrieval-mode is not provided.",
     )
     parser.add_argument(
         "--hybrid",
         action="store_true",
-        help="Enable hybrid retrieval (dense + BM25 + title boosts).",
+        help="Legacy flag that enables hybrid retrieval when retrieval-mode is not provided.",
     )
     return parser.parse_args()
 
@@ -69,10 +75,21 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     workflow = AutonomousResearchWorkflow()
+    retrieval_mode = args.retrieval_mode
+    if retrieval_mode is None:
+        if args.single_hop and args.hybrid:
+            retrieval_mode = "hybrid_single_hop"
+        elif args.single_hop:
+            retrieval_mode = "dense_single_hop"
+        elif args.hybrid:
+            retrieval_mode = "hybrid_multi_hop"
+        else:
+            retrieval_mode = "hybrid_single_hop"
     result = workflow.run(
         question=args.question,
         retrieval_top_k=args.retrieval_top_k,
         evidence_top_k=args.evidence_top_k,
+        retrieval_mode=retrieval_mode,
         use_multi_hop=not args.single_hop,
         use_hybrid_retrieval=args.hybrid,
     )

@@ -17,6 +17,7 @@ Retrieval Layer
    |-- dense retrieval
    |-- optional hybrid retrieval (dense + BM25 + title boosts)
    |-- optional multi-hop expansion
+   |-- optional graph retrieval (supporting-fact co-occurrence graph)
    v
 Sentence-Level Evidence Selection
    |
@@ -39,7 +40,7 @@ LangGraph Workflow
 - **Grounded generation**: I integrated an OpenAI-compatible LLM client and forced the answering stage to use only retrieved evidence.
 - **Workflow orchestration**: I wrapped the pipeline in LangGraph so the system runs as a structured workflow rather than a loose script chain.
 - **Evaluation**: I added answer metrics, supporting-fact metrics, failure breakdowns, and controlled comparisons across retrieval modes.
-- **Frontend**: I added a React dashboard that now exposes four retrieval modes, a workflow trace, an evidence viewer, a candidate-shrinkage Sankey, and an interactive retrieval graph so the retrieval process is visible rather than hidden behind a single final answer.
+- **Frontend**: I added a React dashboard that now exposes a retrieval mode matrix, a workflow trace, an evidence viewer, a candidate-shrinkage Sankey, and an interactive retrieval graph so the retrieval process is visible rather than hidden behind a single final answer.
 
 ## Design Process
 
@@ -68,7 +69,7 @@ That progression matters because most of the later upgrades reuse the earlier mo
 
 ## Retrieval Modes
 
-One thing I wanted the interface to make explicit was that this project is not just "one RAG pipeline." I currently expose four retrieval configurations in the frontend and API:
+One thing I wanted the interface to make explicit was that this project is not just "one RAG pipeline." I now expose a retrieval matrix in the frontend and API:
 
 1. **Dense single-hop**
    - One dense retrieval pass over the FAISS paragraph index.
@@ -78,15 +79,23 @@ One thing I wanted the interface to make explicit was that this project is not j
    - One retrieval pass that combines dense retrieval with BM25-style lexical matching and title-aware boosts.
    - This mode usually improves recall when exact names or titles matter.
 
-3. **Dense multi-hop**
+3. **Graph single-hop**
+   - A graph traversal seeded by HotpotQA supporting-fact co-occurrence.
+   - This is the new graph backbone for questions where title relationships matter more than raw embedding similarity.
+
+4. **Dense multi-hop**
    - A dense first hop followed by follow-up retrieval over bridge entities or generated subqueries.
    - I use this mode to probe whether iterative retrieval adds missing support pages that single-hop misses.
 
-4. **Hybrid multi-hop**
+5. **Hybrid multi-hop**
    - A multi-hop retriever that uses the hybrid retriever as its base instead of dense-only retrieval.
-   - In practice, this is the broadest retrieval setting in the project.
+   - In practice, this is the broadest lexical-plus-dense setting in the project.
 
-I think of these as four controlled variants of the same downstream grounded QA system rather than four unrelated models. That mattered to me because I wanted comparisons to reflect retrieval changes, not a totally different answer generator each time.
+6. **Graph multi-hop**
+   - A second graph traversal step over the supporting-fact graph.
+   - This is the broadest graph-centric retrieval setting in the project.
+
+I think of these as six controlled variants of the same downstream grounded QA system rather than six unrelated models. That mattered to me because I wanted comparisons to reflect retrieval changes, not a totally different answer generator each time.
 
 ## Current Corpus And Artifacts
 
@@ -554,7 +563,7 @@ The frontend is wired to the backend through `VITE_API_BASE_URL`, which defaults
 What the dashboard currently shows:
 
 - question input
-- explicit retrieval-mode selector for all four retrieval variants
+- explicit retrieval-mode matrix for all six retrieval variants
 - answer display
 - reasoning steps
 - workflow execution trace
@@ -567,7 +576,7 @@ What the dashboard currently shows:
 
 I recently revised the frontend to make the retrieval side of the system easier to interpret during demos and debugging.
 
-- I replaced the older checkbox-style retrieval controls with an explicit four-mode selector.
+- I replaced the older checkbox-style retrieval controls with an explicit retrieval-mode matrix.
 - I added an evidence graph that lets me inspect the relationship between the query, retrieved documents, selected evidence, and the final answer.
 - I added a pipeline Sankey so I can see how many candidates survive retrieval, reranking, evidence selection, and final answer generation.
 - I tightened the layout so the dashboard uses horizontal space better and reads more like a research instrument than a toy demo.
@@ -575,11 +584,11 @@ I recently revised the frontend to make the retrieval side of the system easier 
 
 ## Dashboard Screenshots
 
-For the comparison screenshots below, I used the same question across all four retrieval modes:
+For the comparison screenshots below, I used the same question across the retrieval matrix:
 
 `Which magazine was started first Arthur's Magazine or First for Women?`
 
-I wanted this section to function like a small controlled qualitative comparison, so the point is not that the UI looks different for unrelated prompts. The point is that I can hold the query fixed and show how retrieval behavior, workflow trace content, evidence quality, and candidate shrinkage change as I move from dense single-hop to hybrid multi-hop.
+I wanted this section to function like a small controlled qualitative comparison, so the point is not that the UI looks different for unrelated prompts. The point is that I can hold the query fixed and show how retrieval behavior, workflow trace content, evidence quality, and candidate shrinkage change as I move across dense, hybrid, and graph backbones with single-hop and multi-hop variants.
 
 ### Landing View
 
@@ -615,7 +624,7 @@ The dense multi-hop graph and Sankey view:
 
 ### Hybrid Multi-Hop
 
-This is the hybrid multi-hop result for the same question, which is the broadest retrieval setting currently exposed in the project. In this mode I combine lexical-plus-dense retrieval with iterative expansion, then let the evidence selector compress that larger candidate set back down to grounded evidence.
+This is the hybrid multi-hop result for the same question, which is one of the broadest retrieval settings currently exposed in the project. In this mode I combine lexical-plus-dense retrieval with iterative expansion, then let the evidence selector compress that larger candidate set back down to grounded evidence.
 
 ![Hybrid multi-hop mode](docs/images/dashboard-hybrid-multi-hop.png)
 

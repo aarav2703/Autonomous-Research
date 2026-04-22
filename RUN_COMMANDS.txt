@@ -13,6 +13,11 @@ $env:KMP_DUPLICATE_LIB_OK="TRUE"
 
 python scripts/run_api.py
 
+Optional graph setup, if you want to build graph artifacts before launching:
+
+python scripts/build_graph_retrieval.py
+python scripts/validate_graph_retrieval.py
+
 4. In a second terminal:
 
 cd frontend

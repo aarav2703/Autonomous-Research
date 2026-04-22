@@ -29,7 +29,24 @@ const RETRIEVAL_MODES = {
     useHybridRetrieval: true,
     useMultiHop: true,
   },
+  graph_single_hop: {
+    label: 'Graph single-hop',
+    description: 'Graph traversal seeded by supporting-fact co-occurrence.',
+    useHybridRetrieval: false,
+    useMultiHop: false,
+  },
+  graph_multi_hop: {
+    label: 'Graph multi-hop',
+    description: 'Graph traversal with a second-hop expansion step.',
+    useHybridRetrieval: false,
+    useMultiHop: true,
+  },
 }
+
+const RETRIEVAL_MATRIX = [
+  { label: 'Single-hop', modeKeys: ['dense_single_hop', 'hybrid_single_hop', 'graph_single_hop'] },
+  { label: 'Multi-hop', modeKeys: ['dense_multi_hop', 'hybrid_multi_hop', 'graph_multi_hop'] },
+]
 
 function App() {
   const [question, setQuestion] = useState(DEFAULT_QUESTION)
@@ -55,6 +72,7 @@ function App() {
           question,
           retrieval_top_k: 5,
           evidence_top_k: 5,
+          retrieval_mode: retrievalMode,
           use_hybrid_retrieval: selectedMode.useHybridRetrieval,
           use_multi_hop: selectedMode.useMultiHop
         })
@@ -103,17 +121,27 @@ function App() {
           </div>
           <div className="mode-section">
             <p className="section-label">Retrieval Mode</p>
-            <div className="mode-selector" role="radiogroup" aria-label="Retrieval mode">
-              {Object.entries(RETRIEVAL_MODES).map(([modeKey, mode]) => (
-                <button
-                  key={modeKey}
-                  type="button"
-                  className={`mode-chip ${retrievalMode === modeKey ? 'is-active' : ''}`}
-                  onClick={() => setRetrievalMode(modeKey)}
-                  aria-pressed={retrievalMode === modeKey}
-                >
-                  {mode.label}
-                </button>
+            <div className="mode-matrix" role="radiogroup" aria-label="Retrieval mode matrix">
+              {RETRIEVAL_MATRIX.map((row) => (
+                <div key={row.label} className="mode-matrix-row">
+                  <span className="mode-row-label">{row.label}</span>
+                  <div className="mode-selector">
+                    {row.modeKeys.map((modeKey) => {
+                      const mode = RETRIEVAL_MODES[modeKey]
+                      return (
+                        <button
+                          key={modeKey}
+                          type="button"
+                          className={`mode-chip ${retrievalMode === modeKey ? 'is-active' : ''}`}
+                          onClick={() => setRetrievalMode(modeKey)}
+                          aria-pressed={retrievalMode === modeKey}
+                        >
+                          {mode.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
               ))}
             </div>
             <p className="mode-description">{selectedMode.description}</p>

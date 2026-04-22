@@ -140,14 +140,14 @@ export default function PipelineSankey({ answerData }) {
       </svg>
 
       <div className="sankey-summary">
-        <span>Retrieved -> Reranked: {formatCount(graph.reranked)} kept, {formatCount(graph.discardedAfterRetrieval)} discarded</span>
-        <span>Reranked -> Evidence: {formatCount(graph.evidence)} kept, {formatCount(graph.discardedAfterRerank)} discarded</span>
-        <span>Evidence -> Answer: {formatCount(graph.answer)} kept, {formatCount(graph.discardedAfterEvidence)} discarded</span>
+        <span>Retrieved {'->'} Reranked: {formatCount(graph.reranked)} kept, {formatCount(graph.discardedAfterRetrieval)} discarded</span>
+        <span>Reranked {'->'} Evidence: {formatCount(graph.evidence)} kept, {formatCount(graph.discardedAfterRerank)} discarded</span>
+        <span>Evidence {'->'} Answer: {formatCount(graph.answer)} kept, {formatCount(graph.discardedAfterEvidence)} discarded</span>
       </div>
 
       {hoveredLink ? (
         <div className="sankey-tooltip">
-          <strong>{hoveredLink.source.name} -> {hoveredLink.target.name}</strong>
+          <strong>{hoveredLink.source.name} {'->'} {hoveredLink.target.name}</strong>
           <span>Count: {formatCount(hoveredLink.value)}</span>
           <span>Drop: {dropPercent.toFixed(1)}%</span>
           <span className={hoveredLink.kind === 'discarded' ? 'discarded-note' : 'kept-note'}>

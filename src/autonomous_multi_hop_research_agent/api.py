@@ -24,6 +24,7 @@ class AskRequest(BaseModel):
     question: str = Field(..., min_length=1)
     retrieval_top_k: int = Field(default=5, ge=0)
     evidence_top_k: int = Field(default=5, ge=0)
+    retrieval_mode: str | None = None
     use_hybrid_retrieval: bool = Field(default=True)
     use_multi_hop: bool = Field(default=False)
 
@@ -108,6 +109,7 @@ def create_app() -> FastAPI:
             question=payload.question,
             retrieval_top_k=payload.retrieval_top_k,
             evidence_top_k=payload.evidence_top_k,
+            retrieval_mode=payload.retrieval_mode,
             use_hybrid_retrieval=payload.use_hybrid_retrieval,
             use_multi_hop=payload.use_multi_hop,
         )

@@ -168,9 +168,27 @@ input {
   gap: 12px;
 }
 
+.mode-matrix {
+  display: grid;
+  gap: 12px;
+}
+
+.mode-matrix-row {
+  display: grid;
+  gap: 10px;
+}
+
+.mode-row-label {
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
 .mode-selector {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
