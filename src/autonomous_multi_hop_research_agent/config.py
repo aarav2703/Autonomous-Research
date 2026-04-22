@@ -10,6 +10,7 @@ ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 RAW_DATA_DIR = DATA_DIR / "raw"
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
 RETRIEVAL_ARTIFACTS_DIR = ARTIFACTS_DIR / "retrieval"
+HOTPOTQA_RETRIEVAL_DIR = RETRIEVAL_ARTIFACTS_DIR / "hotpotqa_distractor"
 
 
 def get_llm_settings() -> dict[str, str]:

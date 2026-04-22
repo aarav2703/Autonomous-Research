@@ -9,6 +9,7 @@ import numpy as np
 from langgraph.graph import END, START, StateGraph
 
 from autonomous_multi_hop_research_agent.evidence import EvidenceSelectionResult, EvidenceSelector
+from autonomous_multi_hop_research_agent.graph_retrieval import GraphRetriever
 from autonomous_multi_hop_research_agent.hybrid_retrieval import HybridRetriever
 from autonomous_multi_hop_research_agent.multi_hop_retrieval import MultiHopRetriever
 from autonomous_multi_hop_research_agent.rag import (
@@ -66,6 +67,7 @@ class AutonomousResearchWorkflow:
         self,
         retriever: DenseRetriever | None = None,
         hybrid_retriever: HybridRetriever | None = None,
+        graph_retriever: GraphRetriever | None = None,
         multi_hop_retriever: MultiHopRetriever | None = None,
         hybrid_multi_hop_retriever: MultiHopRetriever | None = None,
         evidence_selector: EvidenceSelector | None = None,
@@ -75,6 +77,7 @@ class AutonomousResearchWorkflow:
     ) -> None:
         self.retriever = retriever or DenseRetriever()
         self.hybrid_retriever = hybrid_retriever or HybridRetriever(base_retriever=self.retriever)
+        self.graph_retriever = graph_retriever or GraphRetriever(base_retriever=self.retriever)
         self.multi_hop_retriever = multi_hop_retriever or MultiHopRetriever(base_retriever=self.retriever)
         self.hybrid_multi_hop_retriever = hybrid_multi_hop_retriever or MultiHopRetriever(
             base_retriever=self.hybrid_retriever
@@ -103,6 +106,33 @@ class AutonomousResearchWorkflow:
     def _clamp_confidence(self, value: float) -> float:
         return float(max(0.0, min(1.0, value)))
 
+    def _normalize_retrieval_mode(
+        self,
+        retrieval_mode: str | None,
+        use_multi_hop: bool,
+        use_hybrid_retrieval: bool,
+    ) -> str:
+        if retrieval_mode:
+            candidate = str(retrieval_mode).strip().lower().replace("-", "_")
+            legacy_aliases = {
+                "dense": "dense_single_hop",
+                "hybrid": "hybrid_single_hop",
+                "multi_hop": "dense_multi_hop",
+                "multi_hop_retrieval": "dense_multi_hop",
+                "graph": "graph_single_hop",
+            }
+            return legacy_aliases.get(candidate, candidate)
+        if use_multi_hop:
+            return "hybrid_multi_hop" if use_hybrid_retrieval else "dense_multi_hop"
+        return "hybrid_single_hop" if use_hybrid_retrieval else "dense_single_hop"
+
+    def _parse_retrieval_mode(self, retrieval_mode: str) -> tuple[str, bool]:
+        if retrieval_mode.endswith("_multi_hop"):
+            return retrieval_mode[: -len("_multi_hop")], True
+        if retrieval_mode.endswith("_single_hop"):
+            return retrieval_mode[: -len("_single_hop")], False
+        return retrieval_mode, False
+
     def _run_retrieval_mode(self, state: ResearchGraphState, mode: str) -> ResearchGraphState:
         import pandas as pd
 
@@ -130,8 +160,72 @@ class AutonomousResearchWorkflow:
                 ),
             }
 
-        if mode != "multi-hop":
-            if mode == "hybrid":
+        backbone, is_multi_hop = self._parse_retrieval_mode(mode)
+
+        if backbone == "graph":
+            hop_depth = 2 if is_multi_hop else 1
+            graph_result = self.graph_retriever.retrieve_with_debug(
+                question=state["normalized_question"],
+                top_k=top_k,
+                hop_depth=hop_depth,
+            )
+            merged_chunks = graph_result.merged_chunks.copy()
+            merged_titles = merged_chunks["title"].tolist() if not merged_chunks.empty else []
+            trace = self._append_trace(
+                state,
+                (
+                    f"graph_retrieval: retrieved {len(merged_chunks)} paragraph chunks "
+                    f"with hop_depth={hop_depth}"
+                    if not merged_chunks.empty
+                    else "graph_retrieval: no chunks returned after graph traversal"
+                ),
+            )
+            trace = self._append_trace(
+                {"execution_trace": trace},
+                f"graph_retrieval: seed titles={graph_result.seed_titles[:5]}",
+            )
+            trace = self._append_trace(
+                {"execution_trace": trace},
+                f"graph_retrieval: hop1 titles={graph_result.hop1_titles[:10]}",
+            )
+            if graph_result.hop2_titles:
+                trace = self._append_trace(
+                    {"execution_trace": trace},
+                    f"graph_retrieval: hop2 titles={graph_result.hop2_titles[:10]}",
+                )
+            if graph_result.fallback_reason:
+                trace = self._append_trace(
+                    {"execution_trace": trace},
+                    f"graph_retrieval: {graph_result.fallback_reason}",
+                )
+            return {
+                "retrieved_chunks": merged_chunks.to_dict(orient="records"),
+                "retrieval_mode": mode,
+                "selected_evidence": [],
+                "used_multi_hop": bool(is_multi_hop or graph_result.hop2_titles),
+                "used_subqueries": False,
+                "retrieval_debug": {
+                    "mode": "graph_multi_hop" if is_multi_hop else "graph_single_hop",
+                    "dense_titles": [],
+                    "bm25_titles": [],
+                    "title_boosts": [],
+                    "graph_seed_titles": graph_result.seed_titles,
+                    "graph_hop1_titles": graph_result.hop1_titles,
+                    "graph_hop2_titles": graph_result.hop2_titles,
+                    "hop1_titles": graph_result.hop1_titles,
+                    "hop2_titles": graph_result.hop2_titles,
+                    "entities": graph_result.seed_titles,
+                    "hop2_queries": [],
+                    "merged_titles": merged_titles,
+                    "subqueries": [],
+                    "subquery_titles": {},
+                    "fallback_reason": graph_result.fallback_reason,
+                },
+                "execution_trace": trace,
+            }
+
+        if not is_multi_hop:
+            if backbone == "hybrid":
                 hybrid_result = self.hybrid_retriever.retrieve_with_debug(state["normalized_question"], top_k=top_k)
                 retrieved = hybrid_result.merged_chunks
                 dense_titles = hybrid_result.dense_chunks["title"].tolist()
@@ -158,7 +252,7 @@ class AutonomousResearchWorkflow:
                 "retrieval_mode": mode,
                 "selected_evidence": [],
                 "retrieval_debug": {
-                    "mode": "hybrid" if mode == "hybrid" else "single_hop_dense",
+                    "mode": f"{backbone}_single_hop",
                     "dense_titles": dense_titles,
                     "bm25_titles": bm25_titles,
                     "title_boosts": title_boosts,
@@ -167,13 +261,14 @@ class AutonomousResearchWorkflow:
                     "hop2_queries": [],
                     "hop2_titles": [],
                     "merged_titles": merged_titles,
+                    "graph_seed_titles": [],
+                    "graph_hop1_titles": [],
+                    "graph_hop2_titles": [],
                 },
                 "execution_trace": trace,
             }
 
-        use_hybrid_base = state.get("use_hybrid_retrieval", self.use_hybrid_retrieval) or state.get(
-            "retrieval_mode", ""
-        ) == "hybrid"
+        use_hybrid_base = backbone == "hybrid"
         active_multi_hop_retriever = self.hybrid_multi_hop_retriever if use_hybrid_base else self.multi_hop_retriever
         retrieval_result = active_multi_hop_retriever.retrieve_with_debug(
             question=state["normalized_question"],
@@ -254,22 +349,22 @@ class AutonomousResearchWorkflow:
         if subqueries:
             trace = self._append_trace(
                 {"execution_trace": trace},
-                f"multi-hop_retrieval: subquery retrieval used subqueries={subqueries}",
+                f"{backbone}_multi_hop_retrieval: subquery retrieval used subqueries={subqueries}",
             )
             trace = self._append_trace(
                 {"execution_trace": trace},
-                f"multi-hop_retrieval: hop2 added {len([title for title in merged_titles if title not in first_hop_titles])} new titles",
+                f"{backbone}_multi_hop_retrieval: hop2 added {len([title for title in merged_titles if title not in first_hop_titles])} new titles",
             )
         used_multi_hop = bool(retrieval_result.hop2_chunks.shape[0] > 0 or retrieval_result.extracted_entities)
         used_subqueries = bool(subqueries)
         return {
             "retrieved_chunks": merged_chunks.to_dict(orient="records"),
-            "retrieval_mode": "multi-hop",
+            "retrieval_mode": mode,
             "selected_evidence": [],
             "used_multi_hop": used_multi_hop,
             "used_subqueries": used_subqueries,
             "retrieval_debug": {
-                "mode": "multi_hop",
+                "mode": f"{backbone}_multi_hop",
                 "base_retriever": "hybrid" if use_hybrid_base else "dense",
                 "hop1_titles": hop1_titles,
                 "entities": retrieval_result.extracted_entities,
@@ -279,6 +374,9 @@ class AutonomousResearchWorkflow:
                 "subqueries": subqueries,
                 "subquery_titles": subquery_titles,
                 "fallback_reason": retrieval_result.fallback_reason,
+                "graph_seed_titles": [],
+                "graph_hop1_titles": [],
+                "graph_hop2_titles": [],
             },
             "execution_trace": trace,
         }
@@ -289,8 +387,11 @@ class AutonomousResearchWorkflow:
     def hybrid_retrieval_node(self, state: ResearchGraphState) -> ResearchGraphState:
         return self._run_retrieval_mode(state=state, mode="hybrid")
 
+    def graph_retrieval_node(self, state: ResearchGraphState) -> ResearchGraphState:
+        return self._run_retrieval_mode(state=state, mode=state.get("retrieval_mode", "graph_single_hop"))
+
     def multi_hop_retrieval_node(self, state: ResearchGraphState) -> ResearchGraphState:
-        return self._run_retrieval_mode(state=state, mode="multi-hop")
+        return self._run_retrieval_mode(state=state, mode=state.get("retrieval_mode", "dense_multi_hop"))
 
     def evidence_selection_node(self, state: ResearchGraphState) -> ResearchGraphState:
         import pandas as pd
@@ -376,7 +477,9 @@ class AutonomousResearchWorkflow:
         evidence_recall_estimate = self._clamp_confidence(
             unique_evidence_titles / max(1, len(evidence_df)) if len(evidence_df) > 0 else 0.0
         )
-        used_multi_hop = bool(state.get("retrieval_mode") == "multi-hop" or state.get("used_multi_hop", False))
+        used_multi_hop = bool(
+            str(state.get("retrieval_mode", "")).endswith("_multi_hop") or state.get("used_multi_hop", False)
+        )
         used_subqueries = bool(state.get("subqueries", [])) or bool(state.get("used_subqueries", False))
 
         logger.info(
@@ -411,11 +514,32 @@ class AutonomousResearchWorkflow:
         max_hops = int(state.get("max_hops", 2))
         evidence_confidence = float(state.get("evidence_confidence", 0.0))
         retrieval_confidence = float(state.get("retrieval_confidence", 0.0))
+        retrieval_mode = str(state.get("retrieval_mode", "dense_single_hop"))
 
         if not planner_enabled:
             trace = self._append_trace(
                 state,
                 "planner: disabled, decision=STOP",
+            )
+            return {
+                "planner_decision": "STOP",
+                "execution_trace": trace,
+            }
+
+        if retrieval_mode.startswith("graph_"):
+            trace = self._append_trace(
+                state,
+                f"planner: graph mode={retrieval_mode}, decision=STOP",
+            )
+            return {
+                "planner_decision": "STOP",
+                "execution_trace": trace,
+            }
+
+        if not retrieval_mode.endswith("_multi_hop"):
+            trace = self._append_trace(
+                state,
+                f"planner: fixed mode={retrieval_mode}, decision=STOP",
             )
             return {
                 "planner_decision": "STOP",
@@ -480,82 +604,35 @@ class AutonomousResearchWorkflow:
 
     def _route_from_subquery_generation(self, state: ResearchGraphState) -> str:
         if state.get("subqueries"):
+            retrieval_mode = str(state.get("retrieval_mode", "dense_single_hop"))
+            backbone, _ = self._parse_retrieval_mode(retrieval_mode)
+            if backbone == "graph":
+                return "graph_retrieval"
             return "multi_hop_retrieval"
         return "answer_generation"
 
     def _route_from_question_normalization(self, state: ResearchGraphState) -> str:
-        if state.get("use_multi_hop", self.use_multi_hop):
+        retrieval_mode = str(state.get("retrieval_mode", "dense_single_hop"))
+        backbone, _ = self._parse_retrieval_mode(retrieval_mode)
+        if backbone == "graph":
+            return "graph_retrieval"
+        if retrieval_mode.endswith("_multi_hop"):
             return "multi_hop_retrieval"
-        if state.get("use_hybrid_retrieval", self.use_hybrid_retrieval):
+        if backbone == "hybrid":
             return "hybrid_retrieval"
         return "dense_retrieval"
 
     def retrieval_policy_node(self, state: ResearchGraphState) -> ResearchGraphState:
-        hop_count = int(state.get("hop_count", 0))
-        max_hops = int(state.get("max_hops", 2))
-        retrieval_mode = state.get("retrieval_mode", "dense")
-        retrieval_confidence = float(state.get("retrieval_confidence", 0.0))
-        evidence_confidence = float(state.get("evidence_confidence", 0.0))
-        tried_modes = list(state.get("tried_modes", []))
-        if retrieval_mode and retrieval_mode not in tried_modes:
-            tried_modes.append(retrieval_mode)
-
-        forced_multi_hop = state.get("use_multi_hop", self.use_multi_hop)
-        forced_hybrid = state.get("use_hybrid_retrieval", self.use_hybrid_retrieval)
-        evidence_attempted = bool(state.get("evidence_attempted", False))
-        has_evidence = bool(state.get("selected_evidence", []))
-
-        if hop_count >= max_hops:
-            trace = self._append_trace(
-                state,
-                "retrieval_policy: max_hops reached; forcing answer_generation",
-            )
-            return {
-                "policy_next": "answer_generation",
-                "hop_count": hop_count,
-                "retrieval_mode": retrieval_mode,
-                "tried_modes": tried_modes,
-                "execution_trace": trace,
-            }
-
-        next_action = "proceed"
-        if hop_count >= max_hops:
-            next_action = "proceed"
-        elif forced_multi_hop and retrieval_mode != "multi-hop" and "multi-hop" not in tried_modes:
-            next_action = "to_multi_hop"
-        elif forced_hybrid and retrieval_mode == "dense" and "hybrid" not in tried_modes:
-            next_action = "to_hybrid"
-        elif retrieval_confidence < 0.4 and retrieval_mode == "dense" and "hybrid" not in tried_modes:
-            next_action = "to_hybrid"
-        elif evidence_confidence < 0.3 and retrieval_mode != "multi-hop" and "multi-hop" not in tried_modes:
-            next_action = "to_multi_hop"
-
-        if next_action == "to_hybrid":
-            policy_next = "hybrid_retrieval"
-            hop_count += 1
-            chosen_mode = "hybrid"
-        elif next_action == "to_multi_hop":
-            policy_next = "multi_hop_retrieval"
-            hop_count += 1
-            chosen_mode = "multi-hop"
-        else:
-            if has_evidence or evidence_attempted or hop_count >= max_hops:
-                policy_next = "answer_generation"
-            else:
-                policy_next = "evidence_selection"
-            chosen_mode = retrieval_mode
-
+        retrieval_mode = str(state.get("retrieval_mode", "dense_single_hop"))
         trace = self._append_trace(
             state,
-            "retrieval_policy: "
-            f"mode={retrieval_mode} | retrieval_confidence={retrieval_confidence:.3f} | "
-            f"evidence_confidence={evidence_confidence:.3f} | decision={policy_next}",
+            f"retrieval_policy: fixed mode={retrieval_mode}, decision=answer_generation",
         )
         return {
-            "policy_next": policy_next,
-            "hop_count": hop_count,
-            "retrieval_mode": chosen_mode,
-            "tried_modes": tried_modes,
+            "policy_next": "answer_generation",
+            "hop_count": int(state.get("hop_count", 0)),
+            "retrieval_mode": retrieval_mode,
+            "tried_modes": list(state.get("tried_modes", [])),
             "execution_trace": trace,
         }
 
@@ -657,6 +734,7 @@ class AutonomousResearchWorkflow:
         graph_builder.add_node("question_normalization", self.question_normalization_node)
         graph_builder.add_node("dense_retrieval", self.dense_retrieval_node)
         graph_builder.add_node("hybrid_retrieval", self.hybrid_retrieval_node)
+        graph_builder.add_node("graph_retrieval", self.graph_retrieval_node)
         graph_builder.add_node("multi_hop_retrieval", self.multi_hop_retrieval_node)
         graph_builder.add_node("evidence_selection", self.evidence_selection_node)
         graph_builder.add_node("compute_confidence", self.compute_confidence_node)
@@ -672,11 +750,13 @@ class AutonomousResearchWorkflow:
             {
                 "dense_retrieval": "dense_retrieval",
                 "hybrid_retrieval": "hybrid_retrieval",
+                "graph_retrieval": "graph_retrieval",
                 "multi_hop_retrieval": "multi_hop_retrieval",
             },
         )
         graph_builder.add_edge("dense_retrieval", "evidence_selection")
         graph_builder.add_edge("hybrid_retrieval", "evidence_selection")
+        graph_builder.add_edge("graph_retrieval", "evidence_selection")
         graph_builder.add_edge("multi_hop_retrieval", "evidence_selection")
         graph_builder.add_edge("evidence_selection", "compute_confidence")
         graph_builder.add_edge("compute_confidence", "planner")
@@ -706,20 +786,27 @@ class AutonomousResearchWorkflow:
         question_id: str = "",
         retrieval_top_k: int = 5,
         evidence_top_k: int = 5,
+        retrieval_mode: str | None = None,
         use_multi_hop: bool | None = None,
         use_hybrid_retrieval: bool | None = None,
     ) -> ResearchGraphState:
         """Execute the end-to-end graph for one question."""
+        normalized_retrieval_mode = self._normalize_retrieval_mode(
+            retrieval_mode=retrieval_mode,
+            use_multi_hop=self.use_multi_hop if use_multi_hop is None else use_multi_hop,
+            use_hybrid_retrieval=self.use_hybrid_retrieval if use_hybrid_retrieval is None else use_hybrid_retrieval,
+        )
+        mode_backbone, mode_multi_hop = self._parse_retrieval_mode(normalized_retrieval_mode)
         initial_state: ResearchGraphState = {
             "question_id": question_id,
             "question": question,
             "retrieval_top_k": retrieval_top_k,
             "evidence_top_k": evidence_top_k,
+            "retrieval_mode": normalized_retrieval_mode,
             "retrieval_confidence": 0.0,
             "evidence_confidence": 0.0,
             "retrieval_recall_estimate": 0.0,
             "evidence_recall_estimate": 0.0,
-            "retrieval_mode": "dense",
             "hop_count": 0,
             "max_hops": 2,
             "policy_next": "evidence_selection",
@@ -732,10 +819,8 @@ class AutonomousResearchWorkflow:
             "used_subqueries": False,
             "reranked_candidate_count": 0,
             "stage_counts": {},
-            "use_multi_hop": self.use_multi_hop if use_multi_hop is None else use_multi_hop,
-            "use_hybrid_retrieval": (
-                self.use_hybrid_retrieval if use_hybrid_retrieval is None else use_hybrid_retrieval
-            ),
+            "use_multi_hop": bool(mode_multi_hop),
+            "use_hybrid_retrieval": bool(mode_backbone == "hybrid"),
             "execution_trace": [],
         }
         return self.graph.invoke(initial_state)
